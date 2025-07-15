@@ -59,6 +59,67 @@ def save_text_data(text, metadata):
         return False 
     
 #search queries in chromadb
+def search_text_data(query):
+    #search fro text using chromdb with a filter
+    try:
+        collection = client.get_collection(name = "video_text_search")
+        #use where_document = {"$contains": query} for substring search
+        results = collection.query(
+            query_text = [query], 
+            where_document = {"$contains: query"}, 
+            num_results = 50
+        )
+        #return top 50 matches with timestamp, source video, camera id, screenshot filename (for frontend)
+        if not results or not results['documents']:
+            return []
+        
+        #formatting for frontend use
+        #chromdb.query() returns dictionary 
+        """
+        'documents': [['MS123', ...]], 'metadatas': [[{'timestamp: 12.5, 'camera_id': cam_1, ...}]]
+        """
+        formatted_results = []
+        for i, info in enumerate(results[documents][0]):#for first query batch
+            meta = results['metadats'][0][i]
+            formatted_result = {
+                'text': info,
+                'timestamp': meta.get('timestamp'),
+                'camera_id' = meta.get('camera_id'),
+                'source_video' = meta.get('source_video'),
+                'screenshot_filename': os.path.basename(meta.get('screenshot_path', ''))
+            }
+            formatted_results.append(formatted_result)
+        return formatted_results
+    
+    except Exception as e:
+        print(f"Error querying ChromaDB: {e}")
+        return []
+
+    def capture_screenshot_with_highlight(frame,bbox,text,timestamp, camera_id):
+        #don't want to draw on original
+        highlighted_frame = frame.copy()
+        #bounding box top left and bottom right corners
+        (tl, tr, br, bl) = bbox;
+        tl = (int(tl[0], int(tl[1])))
+        br = (int(br[0], int(br[1])))
+        #draw green box
+        cv2.rectangle(highlighted_frame, tl, br, (0, 255, 0), 3)
+
+        #safe filename formatting
+        safe_text = "".join(c for c in text if c.isalnum())[:20]
+        timestamp_str = f"{timestamp:.1f}s".replace('.', '_')
+        filename = f"{safe_text}_{camera_id}_{timestamp_str}.png"
+        filepath = os.path.join(screenshot_dir, filename)
+        cv2.imwrite(filepath, highlighted_frame)
+        print(f" Highlighted screenshot saved: {filename}")
+        return filepath
+    except Exception as e:
+        print(f"Error saving highlighted screenshot: {e}")
+        return None
+
+
+    
+
 
 
 
