@@ -110,12 +110,69 @@ def search_text_data(query):
         timestamp_str = f"{timestamp:.1f}s".replace('.', '_')
         filename = f"{safe_text}_{camera_id}_{timestamp_str}.png"
         filepath = os.path.join(screenshot_dir, filename)
+
         cv2.imwrite(filepath, highlighted_frame)
         print(f" Highlighted screenshot saved: {filename}")
         return filepath
+
     except Exception as e:
         print(f"Error saving highlighted screenshot: {e}")
         return None
+
+#Multiprocessing functions
+
+#Global variable for each worker 
+#prep each parallel worker process for OCR tasks during multiprocessing
+
+worker_reader = None #hold an EasyOCR.Reader
+
+def init_worker():
+    """Intializer for each worker process in the pool"""
+    global worker_reader
+    worker_reader = easyocr.Reader(['en'], gpu=False)
+
+
+#most important function 
+#process a single video file, frame by frame, uses EasyOCR to detect text, and saves result(screenshots + metadata)
+def process_video_task(video_path):
+    global worker_reader
+    if worker_reader is None:
+        print("Error: Worker not intialized.")
+        return 
+
+    video_file = os.path.basename(video_path) #process one file passed as video path
+    camera_id = os.path.splitext(video_file)[0] #use filename as camera_id (remove .mp4)
+    interval_seconds = 1 #process 1 frame/sec, only run OCR every 1 second of video time
+
+    #open video
+    cap = cv2.VideoCapture(video_path) #open video using OpenCV
+    if not cap.isOpened():
+        print(f"Error: Could not open video file {video_path}")
+        return
+
+    #cap = capture refere to an instance of OpenCV's VideoCapture object
+    #calculate frame interval in 30 FPS video (default)
+    #only analyze 1 frame so skip 29 frames (to save compute)
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if fps == 0: fps = 30
+    frames_to_skip = int(fps * interval_seconds)
+    
+    #loop thru video frames
+    frame_count = 0
+    while True:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_count)
+        success, frame = cap.read()
+        if not success:
+            break
+    #run ocr on frame
+        ocr_results = worker_reader.readtext(frame)
+        curr_timestamp = frame_count / fps
+
+        #filter and save OCR results
+        
+
+    cap.release()
+
 
 
     
