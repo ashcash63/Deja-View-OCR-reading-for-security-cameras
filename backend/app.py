@@ -277,29 +277,91 @@ def process_all_video_multiprocess():
         if os.path.exists(file_path):
             return send_file(file_path, mimetype='image/png')
         else:
-            #return 404, for demo find other filename
-            for file in os.listdir(screenshot_dir) if os.path.exits(screenshot_dir)
+            #return 404, for demo find similar filename
+            for file in os.listdir(screenshot_dir) if os.path.exits(screenshot_dir) else[]:
+                #return the first image file as a fallback
+                if file.endswith(('.png', 'jpg', 'jpeg')):
+                    return send_file(os.path.join(screenshot_dir, file), mimetype='image/png')
+            return jsonify({"error": "Screenshot not found"}), 404
+        
 
-    @app.route('/api/list_videos/<filename>', methods=['GET'])
+    @app.route('/api/videos', methods=['GET'])
     def list_videos():
+        #endpoint to list available videos
+        try:
+            video_files = [f for f in os.listdir(video_dir)if f.endswith(('.mp4', '.mov', '.avi'))]
+            videos = [{"id": f, "name": f, "camera_id": os.path.splitext(f)[0]} for f in video_files]
+            return jsonify({"videos":videos})
+        except FileNotFoundError:
+            return jsonify({"videos": []})
 
     @app.route('/api/video_segment/<filename>', methods=['GET'])
     def get_video_segment():
+        #endpoint to get video segment based on timestamp (returns only the video segment with detected text)
+        #get input
+        video_path_arg = request.args.get('video_path', '')
+        start_time = float(request.args.get('start_time',0))
+        end_time = float(request.args.get('end_time',0))
+        #validate input
+        if not video_path_arg:
+            return jsonify({"Error: no path provided"}, 400)
+        source_video_path = os.path.join(video_dir, video_path_arg)
+        if not os.path.exists(source_video_path):
+            return jsonify({"error": f"Video file not found: {video_path_arg}"}, 404)
+        #process video using cv2
+        try:
+            cap = cv2.VideoCapture(source_video_path)
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            if fps == 0: fps = 30
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            #create mp4 file using MPEG-4 codec
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
 
-    @app.route('/api/index/<filename>', methods=['GET'])
+            start_frame = int(start_time*fps)
+            end_frame = int(end_time*fps)
+
+            #create temp file to store video segment
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_video:
+                temp_video_path = temp_video.name
+            writer= cv2.VideoWriter(temp_video_path, fourcc, fps, (width, height)) #writes the individual video frames into temp file
+            cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+
+            current_frame = start_frame
+            while current_frame <= end_frame:
+                success, frame = cap.read()
+                if not success:
+                    break
+                writer.write(frame)
+                current_frame +=1
+            cap.release()
+            writer.release()
+        #clean up (delete temp video file from server)
+            @after_this_request
+            def cleanup(response):
+                try:
+                    os.remove(temp_video_path)
+                except Exception as e:
+                    app.logger.error("Error removing temp file: %s", e)
+                return response
+            
+            return send_file(temp_video_path, mimetype='video/mp4')
+        except Exception as e:
+            return jsonify({"Error: failed to create video segemnt"}, 500)
+
+
+    #index() function returns a string that will be displayed in the web browser when someone visits site's root URL
+    @app.route('/')
     def index():
+        return "MSI Video Tracker API is running! Videos are being processed automatically."
 
     if __name__ == '__main__':
         #needed on windows
-         multiprocessing.freeze_support()
-    
-        print("Starting MSI Video Tracker API server...")
-    
+        multiprocessing.freeze_support()
         # Start video processing at startup
-        process_all_videos_multiprocess()
-    
-        # Now start the Flask app
-        app.run(debug=True, port=5000, use_reloader=False)
+        process_all_video_multiprocess()
+        # Start the Flask app
+        app.run(debug=True, port=3000, use_reloader=False)
 
     
 
